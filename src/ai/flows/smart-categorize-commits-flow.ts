@@ -201,38 +201,35 @@ ${batch.map((c, idx) => `${idx + 1}. ${c.sha}: ${c.message.substring(0, 80)}`).j
 Return: [{"sha":"${batch[0].sha}","message":"${batch[0].message}","categories":["cat1"]}${batch.length > 1 ? ',{"sha":"' + batch[1].sha + '","message":"' + batch[1].message + '","categories":["cat2"]}' : ''}]`;
 
         response = await generateAIResponse(prompt);
-          console.log(`Raw AI response for batch: ${response.substring(0, 200)}...`);
+        console.log(`Raw AI response for batch: ${response.substring(0, 200)}...`);
 
-          // Try to extract and repair JSON from response
-          let cleanedResponse = response.trim();
+        // Try to extract and repair JSON from response
+        let cleanedResponse = response.trim();
 
-          // Look for JSON array pattern
-          const jsonMatch = cleanedResponse.match(/\[[\s\S]*\]/);
-          if (jsonMatch) {
-            cleanedResponse = jsonMatch[0];
-          }
+        // Look for JSON array pattern
+        const jsonMatch = cleanedResponse.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          cleanedResponse = jsonMatch[0];
+        }
 
-          // Try to repair incomplete JSON
-          cleanedResponse = repairIncompleteJSON(cleanedResponse);
+        // Try to repair incomplete JSON
+        cleanedResponse = repairIncompleteJSON(cleanedResponse);
 
-          const results = JSON.parse(cleanedResponse);
+        const results = JSON.parse(cleanedResponse);
 
-          if (Array.isArray(results)) {
-            results.forEach((result: any) => {
-              if (result.sha && result.categories) {
-                categorizedCommits.push({
-                  sha: result.sha,
-                  message: result.message,
-                  categories: result.categories.filter((cat: string) =>
-                    COMMIT_CATEGORIES.includes(cat as any)
-                  ),
-                });
-                stats.aiBased++;
-              }
-            });
-          }
-        } catch (parseError) {
-          throw parseError; // Re-throw to be caught by outer catch
+        if (Array.isArray(results)) {
+          results.forEach((result: any) => {
+            if (result.sha && result.categories) {
+              categorizedCommits.push({
+                sha: result.sha,
+                message: result.message,
+                categories: result.categories.filter((cat: string) =>
+                  COMMIT_CATEGORIES.includes(cat as any)
+                ),
+              });
+              stats.aiBased++;
+            }
+          });
         }
       } catch (error) {
         console.error('AI categorization failed for batch, using fallback:', error);
