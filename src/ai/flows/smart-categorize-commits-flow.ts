@@ -76,6 +76,7 @@ const SmartCategorizeCommitsOutputSchema = z.object({
     aiBased: z.number(),
     fallback: z.number(),
   }),
+  progressUpdates: z.array(z.string()).optional(),
 });
 
 export type SmartCategorizeCommitsInput = z.infer<typeof SmartCategorizeCommitsInputSchema>;
@@ -151,6 +152,7 @@ function isAmbiguousCommit(message: string): boolean {
 export async function smartCategorizeCommits(input: SmartCategorizeCommitsInput): Promise<SmartCategorizeCommitsOutput> {
   const { commits } = input;
   const categorizedCommits: CategorizedCommit[] = [];
+  const progressUpdates: string[] = [];
   const stats = {
     total: commits.length,
     keywordBased: 0,
@@ -158,7 +160,9 @@ export async function smartCategorizeCommits(input: SmartCategorizeCommitsInput)
     fallback: 0,
   };
 
-  console.log(`Starting smart categorization of ${commits.length} commits...`);
+  const startMessage = `Starting smart categorization of ${commits.length} commits...`;
+  console.log(startMessage);
+  progressUpdates.push(startMessage);
 
   // Step 1: Categorize with keywords
   const ambiguousCommits: typeof commits = [];
@@ -180,25 +184,71 @@ export async function smartCategorizeCommits(input: SmartCategorizeCommitsInput)
     }
   }
 
-  console.log(`Keyword-based: ${stats.keywordBased}/${commits.length}, AI needed: ${ambiguousCommits.length}`);
+  const keywordMessage = `Keyword-based: ${stats.keywordBased}/${commits.length}, AI needed: ${ambiguousCommits.length}`;
+  console.log(keywordMessage);
+  progressUpdates.push(keywordMessage);
 
   // Step 2: Use AI for ambiguous commits in small batches
+  const batchTimes: number[] = [];
   if (ambiguousCommits.length > 0) {
-    const AI_BATCH_SIZE = 2; // Even smaller batches to avoid truncation
+    const AI_BATCH_SIZE = 5; // Increased batch size for faster processing
+    const totalBatches = Math.ceil(ambiguousCommits.length / AI_BATCH_SIZE);
+
+    // Provide initial time estimate (optimized: ~3 seconds per batch including reduced delays)
+    const estimatedTimePerBatch = 3; // seconds
+    const totalEstimatedTime = totalBatches * estimatedTimePerBatch;
+
+    let estimateMessage = '';
+    if (totalEstimatedTime > 60) {
+      const minutes = Math.floor(totalEstimatedTime / 60);
+      const seconds = Math.floor(totalEstimatedTime % 60);
+      estimateMessage = `Estimated total time for AI processing: ${minutes}m ${seconds}s (${totalBatches} batches)`;
+    } else {
+      estimateMessage = `Estimated total time for AI processing: ${totalEstimatedTime}s (${totalBatches} batches)`;
+    }
+    console.log(estimateMessage);
+    progressUpdates.push(estimateMessage);
 
     for (let i = 0; i < ambiguousCommits.length; i += AI_BATCH_SIZE) {
       const batch = ambiguousCommits.slice(i, i + AI_BATCH_SIZE);
-      console.log(`AI processing batch ${Math.floor(i / AI_BATCH_SIZE) + 1}/${Math.ceil(ambiguousCommits.length / AI_BATCH_SIZE)}`);
+      const currentBatch = Math.floor(i / AI_BATCH_SIZE) + 1;
+
+      // Calculate time estimation
+      let timeEstimate = '';
+      if (batchTimes.length > 0) {
+        const avgTimePerBatch = batchTimes.reduce((a, b) => a + b, 0) / batchTimes.length;
+        const remainingBatches = totalBatches - currentBatch;
+        const estimatedRemainingTime = (remainingBatches * avgTimePerBatch) / 1000; // Convert to seconds
+
+        if (estimatedRemainingTime > 60) {
+          const minutes = Math.floor(estimatedRemainingTime / 60);
+          const seconds = Math.floor(estimatedRemainingTime % 60);
+          timeEstimate = ` (Est. ${minutes}m ${seconds}s remaining)`;
+        } else {
+          timeEstimate = ` (Est. ${Math.floor(estimatedRemainingTime)}s remaining)`;
+        }
+      }
+
+      const batchMessage = `AI processing batch ${currentBatch}/${totalBatches}${timeEstimate}`;
+      console.log(batchMessage);
+      progressUpdates.push(batchMessage);
+      const batchStartTime = Date.now();
 
       let response = '';
       try {
-        const prompt = `Categorize commits. Return ONLY JSON array, no other text.
+        // Clean commit messages for the prompt
+        const cleanCommits = batch.map(c => ({
+          sha: c.sha,
+          message: c.message.replace(/[\n\r\t]/g, ' ').replace(/"/g, "'").substring(0, 80)
+        }));
+
+        const prompt = `Categorize these ${batch.length} commits. Return ONLY a JSON array.
 
 Categories: ${COMMIT_CATEGORIES.join(', ')}
 
-${batch.map((c, idx) => `${idx + 1}. ${c.sha}: ${c.message.substring(0, 80)}`).join('\n')}
+${cleanCommits.map((c, idx) => `${idx + 1}. ${c.sha.substring(0, 8)}: ${c.message}`).join('\n')}
 
-Return: [{"sha":"${batch[0].sha}","message":"${batch[0].message}","categories":["cat1"]}${batch.length > 1 ? ',{"sha":"' + batch[1].sha + '","message":"' + batch[1].message + '","categories":["cat2"]}' : ''}]`;
+Return: [{"sha":"full_sha","message":"full_message","categories":["cat1","cat2"]}]`;
 
         response = await generateAIResponse(prompt);
         console.log(`Raw AI response for batch: ${response.substring(0, 200)}...`);
@@ -220,9 +270,11 @@ Return: [{"sha":"${batch[0].sha}","message":"${batch[0].message}","categories":[
         if (Array.isArray(results)) {
           results.forEach((result: any) => {
             if (result.sha && result.categories) {
+              // Find the original commit to get the full message
+              const originalCommit = batch.find(c => c.sha === result.sha);
               categorizedCommits.push({
                 sha: result.sha,
-                message: result.message,
+                message: originalCommit ? originalCommit.message : result.message,
                 categories: result.categories.filter((cat: string) =>
                   COMMIT_CATEGORIES.includes(cat as any)
                 ),
@@ -249,10 +301,19 @@ Return: [{"sha":"${batch[0].sha}","message":"${batch[0].message}","categories":[
         });
       }
 
-      // Delay between AI batches
+      // Record batch processing time
+      const batchEndTime = Date.now();
+      const batchDuration = batchEndTime - batchStartTime;
+      batchTimes.push(batchDuration);
+
+      const completionMessage = `Batch ${currentBatch} completed in ${(batchDuration / 1000).toFixed(1)}s`;
+      console.log(completionMessage);
+      progressUpdates.push(completionMessage);
+
+      // Reduced delay between AI batches for faster processing
       if (i + AI_BATCH_SIZE < ambiguousCommits.length) {
-        console.log('Waiting 4s before next AI batch...');
-        await new Promise(resolve => setTimeout(resolve, 4000));
+        console.log('Waiting 1s before next AI batch...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
   }
@@ -271,6 +332,18 @@ Return: [{"sha":"${batch[0].sha}","message":"${batch[0].message}","categories":[
     }
   });
 
-  console.log(`Smart categorization complete:`, stats);
-  return { categorizedCommits, stats };
+  // Calculate and log final timing statistics
+  if (batchTimes.length > 0) {
+    const totalProcessingTime = batchTimes.reduce((a, b) => a + b, 0) / 1000; // Convert to seconds
+    const avgTimePerBatch = totalProcessingTime / batchTimes.length;
+    const timingMessage = `AI processing completed in ${totalProcessingTime.toFixed(1)}s (avg ${avgTimePerBatch.toFixed(1)}s per batch)`;
+    console.log(timingMessage);
+    progressUpdates.push(timingMessage);
+  }
+
+  const finalMessage = `Smart categorization complete: ${stats.aiBased} AI-based, ${stats.keywordBased} keyword-based, ${stats.fallback} fallback`;
+  console.log(finalMessage, stats);
+  progressUpdates.push(finalMessage);
+
+  return { categorizedCommits, stats, progressUpdates };
 }

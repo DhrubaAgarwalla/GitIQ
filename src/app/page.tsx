@@ -18,6 +18,7 @@ import { WelcomePlaceholder } from '@/components/git-insights/WelcomePlaceholder
 import { CommitCategoriesChart } from '@/components/git-insights/CommitCategoriesChart';
 import { CategoryFilter } from '@/components/git-insights/CategoryFilter';
 import { Button } from '@/components/ui/button';
+import { ProgressTimer } from '@/components/ui/progress-timer';
 import { Loader2, Tags, Sparkles } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { parseISO, compareAsc, compareDesc } from 'date-fns';
@@ -47,8 +48,8 @@ export default function GitInsightsPage() {
 
   // Categorization state
   const [isCategorizing, setIsCategorizing] = useState(false);
-  const [categorizedCommitsCount, setCategorizedCommitsCount] = useState(0);
   const [categorizationProgress, setCategorizationProgress] = useState('');
+  const [estimatedProcessingTime, setEstimatedProcessingTime] = useState(0);
 
   const { toast } = useToast();
   const githubToken = process.env.NEXT_PUBLIC_GITHUB_TOKEN;
@@ -270,7 +271,15 @@ export default function GitInsightsPage() {
         message: commit.commit.message
       }));
 
+      // Estimate processing time based on commit count (optimized)
+      // Rough estimates: ~70% will be keyword-based (instant), ~30% need AI processing
+      const estimatedAICommits = Math.ceil(commits.length * 0.3);
+      const estimatedBatches = Math.ceil(estimatedAICommits / 5); // 5 commits per batch (increased)
+      const estimatedTimePerBatch = 3; // seconds including reduced delays
+      const totalEstimatedTime = estimatedBatches * estimatedTimePerBatch;
+
       setCategorizationProgress(`Processing ${commits.length} commits in batches...`);
+      setEstimatedProcessingTime(totalEstimatedTime);
       const result = await categorizeAllCommitsAction(commitsToCategories);
 
       if (result.success && result.data) {
@@ -287,14 +296,23 @@ export default function GitInsightsPage() {
         });
 
         setCommits(updatedCommits);
-        setCategorizedCommitsCount(result.data.categorizedCommits.length);
 
         const successRate = ((result.data.categorizedCommits.length / commits.length) * 100).toFixed(1);
         const stats = result.data.stats;
 
+        // Show final timing info if available
+        let finalMessage = `Successfully categorized ${result.data.categorizedCommits.length}/${commits.length} commits (${successRate}%). Keywords: ${stats?.keywordBased || 0}, AI: ${stats?.aiBased || 0}, Fallback: ${stats?.fallback || 0}`;
+
+        if (result.data.progressUpdates && result.data.progressUpdates.length > 0) {
+          const timingUpdate = result.data.progressUpdates.find(update => update.includes('completed in'));
+          if (timingUpdate) {
+            finalMessage += `. ${timingUpdate}`;
+          }
+        }
+
         toast({
           title: 'Smart Categorization Complete',
-          description: `Successfully categorized ${result.data.categorizedCommits.length}/${commits.length} commits (${successRate}%). Keywords: ${stats?.keywordBased || 0}, AI: ${stats?.aiBased || 0}, Fallback: ${stats?.fallback || 0}`,
+          description: finalMessage,
         });
       } else {
         throw new Error(result.error || 'Failed to categorize commits');
@@ -309,6 +327,7 @@ export default function GitInsightsPage() {
     } finally {
       setIsCategorizing(false);
       setCategorizationProgress('');
+      setEstimatedProcessingTime(0);
     }
   };
 
@@ -483,20 +502,30 @@ export default function GitInsightsPage() {
                       </div>
                     )}
                     {commits.length > 0 && (
-                      <Button
-                        onClick={handleCategorizeAllCommits}
-                        disabled={isCategorizing}
-                        variant="outline"
-                        size="sm"
-                        className="flex items-center gap-2"
-                      >
-                        {isCategorizing ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Sparkles className="h-4 w-4" />
+                      <div className="flex flex-col gap-3">
+                        <Button
+                          onClick={handleCategorizeAllCommits}
+                          disabled={isCategorizing}
+                          variant="outline"
+                          size="sm"
+                          className="flex items-center gap-2"
+                        >
+                          {isCategorizing ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Sparkles className="h-4 w-4" />
+                          )}
+                          {isCategorizing ? 'Categorizing...' : 'Categorize All Commits'}
+                        </Button>
+                        {isCategorizing && (
+                          <ProgressTimer
+                            isActive={isCategorizing}
+                            estimatedTimeSeconds={estimatedProcessingTime}
+                            message={categorizationProgress}
+                            className="min-w-0"
+                          />
                         )}
-                        {isCategorizing ? (categorizationProgress || 'Categorizing...') : 'Categorize All Commits'}
-                      </Button>
+                      </div>
                     )}
                   </div>
                   <CommitList commits={filteredCommits} isLoading={isLoadingCommits && currentPage === 1 && commits.length === 0} />
@@ -534,10 +563,18 @@ export default function GitInsightsPage() {
                             ) : (
                               <Tags className="h-4 w-4" />
                             )}
-                            {isCategorizing ? (categorizationProgress || 'Categorizing...') : 'Categorize Commits'}
+                            {isCategorizing ? 'Categorizing...' : 'Categorize Commits'}
                           </Button>
                         )}
                       </div>
+                      {isCategorizing && (
+                        <ProgressTimer
+                          isActive={isCategorizing}
+                          estimatedTimeSeconds={estimatedProcessingTime}
+                          message={categorizationProgress}
+                          className="bg-muted/50 p-4 rounded-lg"
+                        />
+                      )}
                       <CommitCategoriesChart commits={commits} />
                       <CommitActivityChart commits={commits} />
                       <ContributorList commits={commits} />

@@ -43,6 +43,10 @@ function repairIncompleteJSON(jsonStr: string): string {
     // Try to fix missing quotes around property names
     repaired = repaired.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
 
+    // Fix control characters and newlines in strings
+    repaired = repaired.replace(/[\n\r\t]/g, ' ');
+    repaired = repaired.replace(/[\x00-\x1F\x7F]/g, '');
+
     // Fix incomplete strings (add closing quotes)
     repaired = repaired.replace(/"([^"]*?)$/gm, '"$1"');
 
@@ -76,8 +80,8 @@ const CategorizeCommitsBulkOutputSchema = z.object({
 });
 export type CategorizeCommitsBulkOutput = z.infer<typeof CategorizeCommitsBulkOutputSchema>;
 
-const BATCH_SIZE = 5; // Smaller batches to reduce token usage and respect rate limits
-const DELAY_BETWEEN_BATCHES = 3000; // 3 seconds delay to respect rate limits
+const BATCH_SIZE = 8; // Optimized batch size for faster processing
+const DELAY_BETWEEN_BATCHES = 1000; // Reduced to 1 second delay for faster processing
 
 export async function categorizeCommitsBulk(input: CategorizeCommitsBulkInput): Promise<CategorizeCommitsBulkOutput> {
   const { commits } = input;
@@ -87,19 +91,57 @@ export async function categorizeCommitsBulk(input: CategorizeCommitsBulkInput): 
   console.log(`Starting bulk categorization of ${commits.length} commits...`);
 
   // Process commits in batches
+  const totalBatches = Math.ceil(commits.length / BATCH_SIZE);
+  const batchTimes: number[] = [];
+
+  // Provide initial time estimate (optimized: ~3 seconds per batch including reduced delays)
+  const estimatedTimePerBatch = 3; // seconds
+  const totalEstimatedTime = totalBatches * estimatedTimePerBatch;
+
+  if (totalEstimatedTime > 60) {
+    const minutes = Math.floor(totalEstimatedTime / 60);
+    const seconds = Math.floor(totalEstimatedTime % 60);
+    console.log(`Estimated total time for bulk processing: ${minutes}m ${seconds}s (${totalBatches} batches)`);
+  } else {
+    console.log(`Estimated total time for bulk processing: ${totalEstimatedTime}s (${totalBatches} batches)`);
+  }
+
   for (let i = 0; i < commits.length; i += BATCH_SIZE) {
     const batch = commits.slice(i, i + BATCH_SIZE);
-    console.log(`Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(commits.length / BATCH_SIZE)} (${batch.length} commits)`);
+    const currentBatch = Math.floor(i / BATCH_SIZE) + 1;
 
-    const prompt = `You must categorize these commits and return ONLY a valid JSON array. Do not include any explanatory text, comments, or formatting. Return ONLY the JSON array.
+    // Calculate time estimation
+    let timeEstimate = '';
+    if (batchTimes.length > 0) {
+      const avgTimePerBatch = batchTimes.reduce((a, b) => a + b, 0) / batchTimes.length;
+      const remainingBatches = totalBatches - currentBatch;
+      const estimatedRemainingTime = (remainingBatches * avgTimePerBatch) / 1000; // Convert to seconds
 
-Available categories: ${COMMIT_CATEGORIES.join(', ')}
+      if (estimatedRemainingTime > 60) {
+        const minutes = Math.floor(estimatedRemainingTime / 60);
+        const seconds = Math.floor(estimatedRemainingTime % 60);
+        timeEstimate = ` (Est. ${minutes}m ${seconds}s remaining)`;
+      } else {
+        timeEstimate = ` (Est. ${Math.floor(estimatedRemainingTime)}s remaining)`;
+      }
+    }
 
-Commits to categorize:
-${batch.map((commit, index) => `${index + 1}. SHA: ${commit.sha}, Message: ${commit.message.substring(0, 100)}`).join('\n')}
+    console.log(`Processing batch ${currentBatch}/${totalBatches} (${batch.length} commits)${timeEstimate}`);
+    const batchStartTime = Date.now();
 
-Return format (ONLY this, no other text):
-[{"sha":"full_sha_here","message":"full_message_here","categories":["category1","category2"]}]`;
+    // Clean commit messages for the prompt
+    const cleanCommits = batch.map(commit => ({
+      sha: commit.sha,
+      message: commit.message.replace(/[\n\r\t]/g, ' ').replace(/"/g, "'").substring(0, 100)
+    }));
+
+    const prompt = `Categorize commits. Return ONLY JSON array, no other text.
+
+Categories: ${COMMIT_CATEGORIES.join(', ')}
+
+${cleanCommits.map((commit, index) => `${index + 1}. ${commit.sha}: ${commit.message}`).join('\n')}
+
+Return format: [{"sha":"commit_sha","message":"commit_message","categories":["category1"]}]`;
 
     let batchProcessed = false;
     let response = '';
@@ -130,9 +172,11 @@ Return format (ONLY this, no other text):
               COMMIT_CATEGORIES.includes(cat as any)
             );
 
+            // Find the original commit to get the full message
+            const originalCommit = batch.find(c => c.sha === result.sha);
             categorizedCommits.push({
               sha: result.sha,
-              message: result.message,
+              message: originalCommit ? originalCommit.message : result.message,
               categories: validCategories.length > 0 ? validCategories : ['other']
             });
             processedShas.add(result.sha);
@@ -177,6 +221,13 @@ Return format (ONLY this, no other text):
       });
     }
 
+    // Record batch processing time
+    const batchEndTime = Date.now();
+    const batchDuration = batchEndTime - batchStartTime;
+    batchTimes.push(batchDuration);
+
+    console.log(`Batch ${currentBatch} completed in ${(batchDuration / 1000).toFixed(1)}s`);
+
     // Add delay between batches to respect rate limits
     if (i + BATCH_SIZE < commits.length) {
       console.log(`Waiting ${DELAY_BETWEEN_BATCHES/1000}s before next batch...`);
@@ -205,6 +256,13 @@ Return format (ONLY this, no other text):
       });
     }
   });
+
+  // Calculate and log final timing statistics
+  if (batchTimes.length > 0) {
+    const totalProcessingTime = batchTimes.reduce((a, b) => a + b, 0) / 1000; // Convert to seconds
+    const avgTimePerBatch = totalProcessingTime / batchTimes.length;
+    console.log(`Bulk processing completed in ${totalProcessingTime.toFixed(1)}s (avg ${avgTimePerBatch.toFixed(1)}s per batch)`);
+  }
 
   console.log(`Bulk categorization complete: ${categorizedCommits.length}/${commits.length} commits processed`);
   return { categorizedCommits };

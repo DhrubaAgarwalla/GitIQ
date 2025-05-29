@@ -89,11 +89,11 @@ export function CommitCategoriesChart({ commits }: CommitCategoriesChartProps) {
 
   const CustomLegend = ({ payload }: any) => {
     return (
-      <div className="flex flex-wrap gap-2 justify-center mt-4">
+      <div className="flex flex-wrap gap-1 justify-center mt-4 max-w-full">
         {payload?.map((entry: any, index: number) => (
-          <Badge key={index} variant="outline" className="text-xs">
+          <Badge key={index} variant="outline" className="text-xs px-2 py-1">
             <span className="mr-1">{entry.payload.icon}</span>
-            {entry.value}
+            <span className="truncate max-w-20">{entry.value}</span>
           </Badge>
         ))}
       </div>
@@ -112,17 +112,20 @@ export function CommitCategoriesChart({ commits }: CommitCategoriesChartProps) {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="h-80 mb-6">
+        <div className="h-96">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie
                 data={chartData}
                 cx="50%"
                 cy="50%"
-                outerRadius={100}
+                outerRadius={120}
+                innerRadius={40}
                 fill="#8884d8"
                 dataKey="value"
-                label={({ name, percentage }) => `${name} (${percentage.toFixed(1)}%)`}
+                label={({ name, percentage, value }) =>
+                  percentage > 3 ? `${name} (${percentage.toFixed(1)}%)` : ''
+                }
                 labelLine={false}
               >
                 {chartData.map((entry, index) => (
@@ -133,31 +136,6 @@ export function CommitCategoriesChart({ commits }: CommitCategoriesChartProps) {
               <Legend content={<CustomLegend />} />
             </PieChart>
           </ResponsiveContainer>
-        </div>
-
-        {/* Category Statistics List */}
-        <div className="space-y-3">
-          <h4 className="text-sm font-semibold text-muted-foreground mb-3">Category Breakdown</h4>
-          {categoryStats.map((stat, index) => (
-            <div key={stat.category} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-              <div className="flex items-center gap-3">
-                <span className="text-lg">{getCategoryIcon(stat.category)}</span>
-                <div>
-                  <span className="font-medium">{stat.category}</span>
-                  <p className="text-sm text-muted-foreground">
-                    {stat.count} commits ({stat.percentage.toFixed(1)}%)
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <div
-                  className="w-4 h-4 rounded-full"
-                  style={{ backgroundColor: stat.color }}
-                />
-                <Badge variant="secondary">{stat.count}</Badge>
-              </div>
-            </div>
-          ))}
         </div>
       </CardContent>
     </Card>
