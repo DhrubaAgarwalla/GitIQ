@@ -14,8 +14,8 @@ export async function generateAIResponse(prompt: string): Promise<string> {
         },
       ],
       model: "llama3-8b-8192", // Free model
-      temperature: 0.7,
-      max_tokens: 1024,
+      temperature: 0.1, // Lower temperature for more consistent JSON
+      max_tokens: 2048, // Increased to reduce truncation
     });
 
     return completion.choices[0]?.message?.content || "No response generated";

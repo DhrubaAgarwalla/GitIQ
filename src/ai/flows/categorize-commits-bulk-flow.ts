@@ -17,8 +17,16 @@ function repairIncompleteJSON(jsonStr: string): string {
     JSON.parse(jsonStr);
     return jsonStr;
   } catch (error) {
+    console.log('Attempting to repair JSON:', error);
+
     // Try to repair common issues
     let repaired = jsonStr;
+
+    // Remove any text before the first [
+    const firstBracket = repaired.indexOf('[');
+    if (firstBracket > 0) {
+      repaired = repaired.substring(firstBracket);
+    }
 
     // If it doesn't end with ], try to close the array
     if (!repaired.trim().endsWith(']')) {
@@ -35,6 +43,18 @@ function repairIncompleteJSON(jsonStr: string): string {
     // Try to fix missing quotes around property names
     repaired = repaired.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
 
+    // Fix incomplete strings (add closing quotes)
+    repaired = repaired.replace(/"([^"]*?)$/gm, '"$1"');
+
+    // Try to fix incomplete objects by removing the last incomplete entry
+    if (repaired.includes('{"sha":') && !repaired.endsWith(']')) {
+      const lastCompleteEntry = repaired.lastIndexOf('},');
+      if (lastCompleteEntry !== -1) {
+        repaired = repaired.substring(0, lastCompleteEntry + 1) + ']';
+      }
+    }
+
+    console.log('Repaired JSON:', repaired.substring(0, 200) + '...');
     return repaired;
   }
 }

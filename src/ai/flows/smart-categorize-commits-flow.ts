@@ -9,8 +9,16 @@ function repairIncompleteJSON(jsonStr: string): string {
     JSON.parse(jsonStr);
     return jsonStr;
   } catch (error) {
+    console.log('Attempting to repair JSON:', error);
+
     // Try to repair common issues
     let repaired = jsonStr;
+
+    // Remove any text before the first [
+    const firstBracket = repaired.indexOf('[');
+    if (firstBracket > 0) {
+      repaired = repaired.substring(firstBracket);
+    }
 
     // If it doesn't end with ], try to close the array
     if (!repaired.trim().endsWith(']')) {
@@ -27,6 +35,22 @@ function repairIncompleteJSON(jsonStr: string): string {
     // Try to fix missing quotes around property names
     repaired = repaired.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
 
+    // Fix control characters and newlines in strings
+    repaired = repaired.replace(/[\n\r\t]/g, ' ');
+    repaired = repaired.replace(/[\x00-\x1F\x7F]/g, '');
+
+    // Fix incomplete strings (add closing quotes)
+    repaired = repaired.replace(/"([^"]*?)$/gm, '"$1"');
+
+    // Try to fix incomplete objects by removing the last incomplete entry
+    if (repaired.includes('{"sha":') && !repaired.endsWith(']')) {
+      const lastCompleteEntry = repaired.lastIndexOf('},');
+      if (lastCompleteEntry !== -1) {
+        repaired = repaired.substring(0, lastCompleteEntry + 1) + ']';
+      }
+    }
+
+    console.log('Repaired JSON:', repaired.substring(0, 200) + '...');
     return repaired;
   }
 }
@@ -166,20 +190,17 @@ export async function smartCategorizeCommits(input: SmartCategorizeCommitsInput)
       const batch = ambiguousCommits.slice(i, i + AI_BATCH_SIZE);
       console.log(`AI processing batch ${Math.floor(i / AI_BATCH_SIZE) + 1}/${Math.ceil(ambiguousCommits.length / AI_BATCH_SIZE)}`);
 
+      let response = '';
       try {
-        const prompt = `You must categorize these commits and return ONLY a valid JSON array. Do not include any explanatory text, comments, or formatting. Return ONLY the JSON array.
+        const prompt = `Categorize commits. Return ONLY JSON array, no other text.
 
-Available categories: ${COMMIT_CATEGORIES.join(', ')}
+Categories: ${COMMIT_CATEGORIES.join(', ')}
 
-Commits to categorize:
-${batch.map((c, idx) => `${idx + 1}. SHA: ${c.sha}, Message: ${c.message.substring(0, 100)}`).join('\n')}
+${batch.map((c, idx) => `${idx + 1}. ${c.sha}: ${c.message.substring(0, 80)}`).join('\n')}
 
-Return format (ONLY this, no other text):
-[{"sha":"full_sha_here","message":"full_message_here","categories":["category1","category2"]}]`;
+Return: [{"sha":"${batch[0].sha}","message":"${batch[0].message}","categories":["cat1"]}${batch.length > 1 ? ',{"sha":"' + batch[1].sha + '","message":"' + batch[1].message + '","categories":["cat2"]}' : ''}]`;
 
-        let response = '';
-        try {
-          response = await generateAIResponse(prompt);
+        response = await generateAIResponse(prompt);
           console.log(`Raw AI response for batch: ${response.substring(0, 200)}...`);
 
           // Try to extract and repair JSON from response
