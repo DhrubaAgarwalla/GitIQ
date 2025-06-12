@@ -377,7 +377,7 @@ class MultiProviderAI {
    */
   public getProviderStatus() {
     return Array.from(this.providers.entries()).map(([key, provider]) => ({
-      name: key,
+      id: key,
       ...provider
     }));
   }
