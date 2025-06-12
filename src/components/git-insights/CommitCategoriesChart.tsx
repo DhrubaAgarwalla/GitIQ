@@ -1,7 +1,7 @@
 'use client';
 
 import type { GithubCommit } from '@/lib/github';
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -21,6 +21,21 @@ interface ChartDataPoint {
 }
 
 export function CommitCategoriesChart({ commits }: CommitCategoriesChartProps) {
+  // Hook to track screen size for responsive design
+  const [isMobile, setIsMobile] = useState(false);
+  const [isSmallMobile, setIsSmallMobile] = useState(false);
+
+  useEffect(() => {
+    const checkScreenSize = () => {
+      setIsMobile(window.innerWidth < 768); // md breakpoint
+      setIsSmallMobile(window.innerWidth < 480); // small mobile
+    };
+
+    checkScreenSize();
+    window.addEventListener('resize', checkScreenSize);
+    return () => window.removeEventListener('resize', checkScreenSize);
+  }, []);
+
   const { chartData, totalCategorizedCommits, categoryStats } = useMemo(() => {
     // Filter commits that have categories
     const categorizedCommits = commits.filter(commit => commit.categories && commit.categories.length > 0);
@@ -89,11 +104,26 @@ export function CommitCategoriesChart({ commits }: CommitCategoriesChartProps) {
 
   const CustomLegend = ({ payload }: any) => {
     return (
-      <div className="flex flex-wrap gap-1 justify-center mt-4 max-w-full">
+      <div className={`flex gap-1.5 mt-3 max-w-full ${
+        isMobile
+          ? 'flex-wrap justify-start'
+          : 'flex-wrap justify-center'
+      }`}>
         {payload?.map((entry: any, index: number) => (
-          <Badge key={index} variant="outline" className="text-xs px-2 py-1">
-            <span className="mr-1">{entry.payload.icon}</span>
-            <span className="truncate max-w-20">{entry.value}</span>
+          <Badge
+            key={index}
+            variant="outline"
+            className={`text-xs px-1.5 py-0.5 h-6 ${
+              isMobile ? 'text-[10px]' : 'text-xs'
+            }`}
+          >
+            <span className="mr-1 text-[10px]">{entry.payload.icon}</span>
+            <span className="truncate max-w-16">
+              {entry.value}
+            </span>
+            <span className="ml-1 text-muted-foreground font-mono">
+              {entry.payload.percentage.toFixed(1)}%
+            </span>
           </Badge>
         ))}
       </div>
@@ -111,32 +141,68 @@ export function CommitCategoriesChart({ commits }: CommitCategoriesChartProps) {
           Distribution of {totalCategorizedCommits} categorized commits across different types
         </CardDescription>
       </CardHeader>
-      <CardContent>
-        <div className="h-96">
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie
-                data={chartData}
-                cx="50%"
-                cy="50%"
-                outerRadius={120}
-                innerRadius={40}
-                fill="#8884d8"
-                dataKey="value"
-                label={({ name, percentage, value }) =>
-                  percentage > 3 ? `${name} (${percentage.toFixed(1)}%)` : ''
-                }
-                labelLine={false}
-              >
-                {chartData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.color} />
-                ))}
-              </Pie>
-              <Tooltip content={<CustomTooltip />} />
-              <Legend content={<CustomLegend />} />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
+      <CardContent className={isMobile ? 'p-4' : 'p-6'}>
+        {isMobile ? (
+          // Mobile layout: Chart and legend separated
+          <div className="space-y-4">
+            <div className={isSmallMobile ? 'h-72' : 'h-80'}>
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={chartData}
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={isSmallMobile ? 90 : 110}
+                    innerRadius={isSmallMobile ? 35 : 45}
+                    fill="#8884d8"
+                    dataKey="value"
+                    label={false} // No labels on mobile to avoid clutter
+                  >
+                    {chartData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip content={<CustomTooltip />} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            {/* Separate legend section for mobile */}
+            <div className="border-t pt-4">
+              <CustomLegend payload={chartData.map(item => ({
+                value: item.name,
+                payload: item,
+                color: item.color
+              }))} />
+            </div>
+          </div>
+        ) : (
+          // Desktop layout: Chart with integrated legend
+          <div className="h-96">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={chartData}
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={120}
+                  innerRadius={40}
+                  fill="#8884d8"
+                  dataKey="value"
+                  label={({ name, percentage, value }) =>
+                    percentage > 3 ? `${name} (${percentage.toFixed(1)}%)` : ''
+                  }
+                  labelLine={false}
+                >
+                  {chartData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip content={<CustomTooltip />} />
+                <Legend content={<CustomLegend />} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

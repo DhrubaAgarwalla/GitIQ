@@ -2,7 +2,7 @@
 'use client';
 
 import type { GithubCommit } from '@/lib/github';
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import {
   format,
   parseISO,
@@ -36,6 +36,21 @@ const chartConfig = {
 } satisfies ChartConfig;
 
 export function CommitActivityChart({ commits }: CommitActivityChartProps) {
+  // Hook to track screen size for responsive design
+  const [isMobile, setIsMobile] = useState(false);
+  const [isSmallMobile, setIsSmallMobile] = useState(false);
+
+  useEffect(() => {
+    const checkScreenSize = () => {
+      setIsMobile(window.innerWidth < 768); // md breakpoint
+      setIsSmallMobile(window.innerWidth < 480); // small mobile
+    };
+
+    checkScreenSize();
+    window.addEventListener('resize', checkScreenSize);
+    return () => window.removeEventListener('resize', checkScreenSize);
+  }, []);
+
   const { chartData, aggregationLevel } = useMemo(() => {
     if (!commits || commits.length === 0) {
       return { chartData: [], aggregationLevel: 'day' as const };
@@ -158,25 +173,44 @@ export function CommitActivityChart({ commits }: CommitActivityChartProps) {
          <CardTitle className="flex items-center"><Activity className="mr-2 h-5 w-5 text-primary" />Commit Activity Over Time</CardTitle>
         <CardDescription>{cardDescriptionText}</CardDescription>
       </CardHeader>
-      <CardContent>
-        <ChartContainer config={chartConfig} className="h-[300px] w-full">
+      <CardContent className={isMobile ? 'p-4' : 'p-6'}>
+        <ChartContainer
+          config={chartConfig}
+          className={`w-full ${
+            isMobile
+              ? isSmallMobile ? 'h-[280px]' : 'h-[320px]'
+              : 'h-[300px]'
+          }`}
+        >
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} margin={{ top: 5, right: 20, left: -20, bottom: 5 }}>
+            <BarChart
+              data={chartData}
+              margin={{
+                top: 5,
+                right: isMobile ? 10 : 20,
+                left: isMobile ? -30 : -20,
+                bottom: isMobile ? 20 : 5
+              }}
+            >
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
               <XAxis
                 dataKey="date"
                 tickLine={false}
                 axisLine={false}
                 tickMargin={8}
-                fontSize={12}
-                // interval="preserveStartEnd" // Consider adding interval based on data density
+                fontSize={isMobile ? 10 : 12}
+                angle={isMobile ? -45 : 0}
+                textAnchor={isMobile ? 'end' : 'middle'}
+                height={isMobile ? 60 : 30}
+                interval={isMobile ? Math.max(0, Math.floor(chartData.length / 6)) : 0}
               />
               <YAxis
                 allowDecimals={false}
                 tickLine={false}
                 axisLine={false}
                 tickMargin={8}
-                fontSize={12}
+                fontSize={isMobile ? 10 : 12}
+                width={isMobile ? 30 : 40}
                />
               <ChartTooltip
                 cursor={false}
@@ -188,11 +222,23 @@ export function CommitActivityChart({ commits }: CommitActivityChartProps) {
                       if (!dataPoint) return null; // Should not happen with active tooltip
 
                       return (
-                        <div className="grid gap-0.5 p-1 min-w-[150px]">
-                          <p className="font-medium text-foreground">{dataPoint.periodLabel}</p>
+                        <div className={`grid gap-0.5 p-1 ${
+                          isMobile ? 'min-w-[120px]' : 'min-w-[150px]'
+                        }`}>
+                          <p className={`font-medium text-foreground ${
+                            isMobile ? 'text-xs' : 'text-sm'
+                          }`}>
+                            {dataPoint.periodLabel}
+                          </p>
                           <div className="flex items-center justify-between">
-                            <span className="text-muted-foreground">{chartConfig.commits.label}:</span>
-                            <span className="font-medium font-mono ml-2 tabular-nums text-foreground">
+                            <span className={`text-muted-foreground ${
+                              isMobile ? 'text-xs' : 'text-sm'
+                            }`}>
+                              {chartConfig.commits.label}:
+                            </span>
+                            <span className={`font-medium font-mono ml-2 tabular-nums text-foreground ${
+                              isMobile ? 'text-xs' : 'text-sm'
+                            }`}>
                               {value.toLocaleString()}
                             </span>
                           </div>
@@ -202,8 +248,12 @@ export function CommitActivityChart({ commits }: CommitActivityChartProps) {
                   />
                 }
               />
-              <Legend />
-              <Bar dataKey="commits" fill="var(--color-commits)" radius={4} />
+              {!isSmallMobile && <Legend />}
+              <Bar
+                dataKey="commits"
+                fill="var(--color-commits)"
+                radius={isMobile ? 2 : 4}
+              />
             </BarChart>
           </ResponsiveContainer>
         </ChartContainer>
