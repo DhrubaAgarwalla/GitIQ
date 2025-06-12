@@ -7,9 +7,18 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "ai:test": "tsx src/ai/dev.ts"
+    "ai:test": "tsx src/ai/dev.ts",
+    "ai:test-providers": "tsx src/ai/test-providers.ts",
+    "ai:test-100": "tsx src/ai/test-100-commits.ts",
+    "ai:test-enhanced": "tsx src/ai/test-enhanced-100-commits.ts",
+    "ai:test-500": "tsx src/ai/test-enhanced-500-commits.ts",
+    "ai:validate": "tsx src/ai/test-enhanced-validation.ts",
+    "ai:debug-hf": "tsx src/ai/test-huggingface-debug.ts",
+    "ai:test-main-format": "tsx src/ai/test-main-app-format.ts",
+    "ai:debug-main": "tsx src/ai/debug-main-app-issue.ts"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@hookform/resolvers": "^3.3.4",
     "@radix-ui/react-accordion": "^1.1.2",
     "@radix-ui/react-alert-dialog": "^1.0.5",
@@ -35,6 +44,7 @@
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",
     "date-fns": "^3.3.1",
+    "dotenv": "^16.5.0",
     "groq-sdk": "^0.7.0",
     "lucide-react": "^0.344.0",
     "next": "^14.1.0",
